@@ -24,8 +24,28 @@
 - [x] Contract tests with `MockAcpAgentTransport`.
 - [x] `StdioAcpTransport` spawning `SKILLOPT_SLEEP_ACP_AGENT_CMD` (NDJSON stdio).
 - [x] Fixture agent + non-mock stdio contract tests.
-- [ ] Live product ACP agent binary on m4 (e.g. editor/coding agent with ACP stdio).
-- [ ] Official plugins/README claim + optional upstream PRs.
+- [x] Real-agent prove: `cursor-agent acp` over stdio — initialize + session/new
+      + session/prompt + multi-chunk `agent_message_chunk` assembly + judge
+      (exact_score hard=1.0 on "pong"). Keychain was unlocked on m4.
+- [ ] Official plugins/README claim + optional upstream PRs (held for Vishal GO;
+      guardrail test `test_acp_is_not_claimed_as_official_plugin_yet` stays in
+      place until that PR lands).
+
+## Real-agent prove log (2026-11-13, m4)
+
+```
+SKILLOPT_SLEEP_ACP_AGENT_CMD="cursor-agent acp"  (no mock)
+initialize  -> protocolVersion=1, agentCapabilities.session
+session/new -> sessionId=0018c8b7-...
+session/prompt (intent: "reply with the single word: pong")
+  session/update: agent_message_chunk "p" + "ong"  (streamed)
+  -> assembled "pong"
+judge: hard=1.0 soft=1.0 (exact_score vs reference "pong")
+```
+
+Bug found + fixed during prove: `_last_agent_text` took only the last
+`agent_message_chunk` delta; real agents stream multiple. Now concatenates
+all chunks in transcript order.
 
 ## How to run
 
