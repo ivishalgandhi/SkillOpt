@@ -519,18 +519,24 @@ class AcpBackend(Backend):
 
     @staticmethod
     def _last_agent_text(transport: AcpTransport) -> str:
+        # Agents stream the assistant turn as multiple agent_message_chunk
+        # session/update notifications (ACP v1). Concatenate every text chunk
+        # in transcript order; taking only the last drops earlier deltas.
         transcript = getattr(transport, "transcript", None) or []
-        for msg in reversed(transcript):
+        parts: List[str] = []
+        for msg in transcript:
             if not isinstance(msg, dict):
                 continue
             if msg.get("method") != "session/update":
                 continue
             params = msg.get("params") or {}
             update = params.get("update") or {}
+            if update.get("sessionUpdate") != "agent_message_chunk":
+                continue
             content = update.get("content") or {}
             if isinstance(content, dict) and content.get("type") == "text":
-                return str(content.get("text", ""))
-        return ""
+                parts.append(str(content.get("text", "")))
+        return "".join(parts)
 
 
 def get_acp_backend(
