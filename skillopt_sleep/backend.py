@@ -2793,8 +2793,7 @@ def get_backend(
         )
         return HandoffBackend(model=model, handoff_dir=hdir)
     if n in {"acp", "agent_client_protocol", "agent-client-protocol"}:
-        # Native SkillOpt↔ACP adapter. Mock wins if set; else spawn
-        # SKILLOPT_SLEEP_ACP_AGENT_CMD over stdio NDJSON JSON-RPC.
+        # Native SkillOpt↔ACP adapter. Env precedence lives in get_acp_backend.
         from skillopt_sleep.acp_backend import get_acp_backend
 
         use_mock = os.environ.get("SKILLOPT_SLEEP_ACP_MOCK", "").strip().lower() in {
@@ -2803,12 +2802,10 @@ def get_backend(
             "yes",
             "on",
         }
-        agent_cmd = os.environ.get("SKILLOPT_SLEEP_ACP_AGENT_CMD", "").strip() or None
         return get_acp_backend(
             model=model,
             project_dir=project_dir,
             use_mock=use_mock,
-            agent_cmd=None if use_mock else agent_cmd,
         )
     if n in {"mock", ""}:
         return MockBackend()

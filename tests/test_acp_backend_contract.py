@@ -31,6 +31,8 @@ FIXTURE_AGENT = Path(__file__).resolve().parent / "fixtures" / "acp_fixture_agen
 def _clear_acp_env() -> None:
     os.environ.pop("SKILLOPT_SLEEP_ACP_MOCK", None)
     os.environ.pop("SKILLOPT_SLEEP_ACP_AGENT_CMD", None)
+    os.environ.pop("SKILLOPT_SLEEP_ACP_AGENT", None)
+    os.environ.pop("SKILLOPT_SLEEP_ACP_CLAUDE_CMD", None)
 
 
 def test_initialize_params_match_acp_v1_required_fields() -> None:
@@ -203,6 +205,38 @@ def test_get_backend_acp_agent_cmd_uses_stdio_transport(monkeypatch) -> None:
         assert session.session_id.startswith("sess_")
     finally:
         be.close()
+
+
+def test_get_backend_acp_agent_preset_cursor_resolves_command(monkeypatch) -> None:
+    """Preset name resolves to cursor-agent without spawning it."""
+    monkeypatch.delenv("SKILLOPT_SLEEP_ACP_MOCK", raising=False)
+    monkeypatch.delenv("SKILLOPT_SLEEP_ACP_AGENT_CMD", raising=False)
+    monkeypatch.setenv("SKILLOPT_SLEEP_ACP_AGENT", "cursor")
+    captured: dict[str, str] = {}
+
+    class _Capture(StdioAcpTransport):
+        def __init__(self, command: str, **kwargs: object) -> None:
+            captured["command"] = command
+
+    monkeypatch.setattr("skillopt_sleep.acp_backend.StdioAcpTransport", _Capture)
+    be = get_backend("acp")
+    assert "cursor-agent" in captured["command"]
+    assert isinstance(be.transport, _Capture)
+
+
+def test_get_backend_agent_cmd_wins_over_preset(monkeypatch) -> None:
+    monkeypatch.delenv("SKILLOPT_SLEEP_ACP_MOCK", raising=False)
+    monkeypatch.setenv("SKILLOPT_SLEEP_ACP_AGENT", "cursor")
+    monkeypatch.setenv("SKILLOPT_SLEEP_ACP_AGENT_CMD", "explicit-agent")
+    captured: dict[str, str] = {}
+
+    class _Capture(StdioAcpTransport):
+        def __init__(self, command: str, **kwargs: object) -> None:
+            captured["command"] = command
+
+    monkeypatch.setattr("skillopt_sleep.acp_backend.StdioAcpTransport", _Capture)
+    get_backend("acp")
+    assert captured["command"] == "explicit-agent"
 
 
 def test_get_backend_mock_wins_over_agent_cmd(monkeypatch) -> None:

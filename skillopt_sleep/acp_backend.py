@@ -573,9 +573,20 @@ def get_acp_backend(
 
     Precedence when ``transport`` is None:
       1. ``use_mock`` / SKILLOPT_SLEEP_ACP_MOCK → MockAcpAgentTransport
-      2. ``agent_cmd`` / SKILLOPT_SLEEP_ACP_AGENT_CMD → StdioAcpTransport
-      3. else transport stays None (explicit error on use)
+      2. ``agent_cmd`` argument, else SKILLOPT_SLEEP_ACP_AGENT_CMD
+      3. else SKILLOPT_SLEEP_ACP_AGENT via resolve_acp_agent_command
+      4. else transport stays None (explicit error on use)
     """
+    if transport is None and not use_mock and not agent_cmd:
+        agent_cmd = os.environ.get("SKILLOPT_SLEEP_ACP_AGENT_CMD", "").strip() or None
+        if not agent_cmd:
+            from skillopt_sleep.acp_agents import resolve_acp_agent_command
+
+            agent_cmd = resolve_acp_agent_command(
+                agent_name=os.environ.get("SKILLOPT_SLEEP_ACP_AGENT"),
+                agent_cmd=None,
+                claude_cmd=os.environ.get("SKILLOPT_SLEEP_ACP_CLAUDE_CMD"),
+            )
     if transport is None and use_mock:
         transport = MockAcpAgentTransport()
     elif transport is None and agent_cmd:
