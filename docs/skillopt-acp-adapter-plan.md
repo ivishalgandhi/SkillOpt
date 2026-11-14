@@ -11,7 +11,7 @@
 3. Map `TaskRecord` + skill/memory into a single text prompt content block; later add resource links / tools.
 4. Keep `reflect` / optimizer on a non-ACP backend (`DualBackend`: `target_backend=acp`, `optimizer_backend=mock|claude|…`).
 5. Reuse ACP fork only for schema/session-lifecycle correctness tests — do not ship the fork as a product.
-6. Real transport: stdio JSON-RPC (NDJSON) to an ACP agent binary via `SKILLOPT_SLEEP_ACP_AGENT_CMD`.
+6. Real transport: stdio JSON-RPC (NDJSON). `SKILLOPT_SLEEP_ACP_AGENT_CMD` still wins; otherwise `SKILLOPT_SLEEP_ACP_AGENT` picks `cursor`, `devin`, `claude`, or `custom` (`skillopt_sleep/acp_agents.py`).
 7. Harvest later: optional ACP session logs → `SessionDigest` (after attempt path works).
 8. Plugin packaging (`plugins/acp/`) after a **real** product agent (not just the fixture) is green — then optional SkillOpt upstream PR.
 9. Optional ACP upstream PR only for protocol gaps discovered by the adapter.
@@ -26,7 +26,10 @@
 - [x] Real-agent prove: `cursor-agent acp` over stdio — initialize + session/new
       + session/prompt + multi-chunk `agent_message_chunk` assembly + judge
       (exact_score hard=1.0 on "pong"). (Agent login must be usable from
-      the spawning shell.)
+      the spawning shell. A locked desktop keychain blocks cursor and claude proves.)
+- [x] Named registry: `cursor`, `devin`, `claude`, `custom`. `AGENT_CMD` wins over the preset. Mock wins over both.
+- [x] Claude preset uses `@agentclientprotocol/claude-agent-acp@0.107.0` (Claude login). Optional `SKILLOPT_SLEEP_ACP_CLAUDE_CMD`. Not `@zed-industries/claude-code-acp`. No API key in SkillOpt.
+- [x] Nits: `tokens_used()` is a character-length proxy (not billing); stdio `close()` kills on wait timeout; `_chunk_scan_start` limits each prompt's chunk scan; `judge()` is local because ACP v1 has no judge RPC.
 - [ ] Official plugins/README claim + optional upstream PRs (held for maintainer GO;
       guardrail test `test_acp_is_not_claimed_as_official_plugin_yet` stays in
       place until that PR lands).
@@ -45,7 +48,10 @@ judge: hard=1.0 soft=1.0 (exact_score vs reference "pong")
 
 Bug found + fixed during prove: `_last_agent_text` took only the last
 `agent_message_chunk` delta; real agents stream multiple. Now concatenates
-all chunks in transcript order.
+chunks from the current prompt only (`_chunk_scan_start`).
+
+Judge stays local (`exact_score` / `keyword_soft_score`). ACP v1 has no judge RPC.
+`tokens_used()` sums chunk text lengths for the optimizer. It is not provider billing.
 
 ## How to run
 
@@ -57,6 +63,12 @@ SKILLOPT_SLEEP_ACP_MOCK=1 skillopt-sleep --backend acp …
 SKILLOPT_SLEEP_ACP_AGENT_CMD="python3 tests/fixtures/acp_fixture_agent.py" \
   skillopt-sleep --backend acp …
 
-# Real agent (when available):
-SKILLOPT_SLEEP_ACP_AGENT_CMD="/path/to/acp-agent …" skillopt-sleep --backend acp …
+# Named preset (command must already be on PATH, login already usable):
+SKILLOPT_SLEEP_ACP_AGENT=cursor skillopt-sleep --backend acp …
+SKILLOPT_SLEEP_ACP_AGENT=devin skillopt-sleep --backend acp …
+
+# Claude adapter via existing Claude login. Do not set an API key.
+SKILLOPT_SLEEP_ACP_AGENT=claude skillopt-sleep --backend acp …
+# Or a standalone binary:
+# SKILLOPT_SLEEP_ACP_CLAUDE_CMD="claude-agent-acp" SKILLOPT_SLEEP_ACP_AGENT=claude …
 ```
