@@ -367,8 +367,15 @@ class StdioAcpTransport(AcpTransport):
             pass
         try:
             self._proc.terminate()
-            self._proc.wait(timeout=3)
         except Exception:
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+            return
+        try:
+            self._proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
             try:
                 self._proc.kill()
             except Exception:
@@ -445,6 +452,8 @@ class AcpBackend(Backend):
         self.transport = transport
         self._session: Optional[AcpSession] = None
         self._tokens = 0
+        # Index into transport.transcript; attempt() resets this before each prompt.
+        self._chunk_scan_start = 0
         self.preferences = ""
 
     def _ensure_transport(self) -> AcpTransport:
@@ -479,6 +488,7 @@ class AcpBackend(Backend):
         )
         if task.system:
             prompt = f"{task.system}\n\n{prompt}"
+        self._chunk_scan_start = len(getattr(t, "transcript", None) or [])
         result = t.request(
             "session/prompt",
             build_session_prompt_params(session_id=session.session_id, text=prompt),
@@ -486,10 +496,12 @@ class AcpBackend(Backend):
         stop = result.get("stopReason")
         if not stop:
             raise AcpBackendError("session/prompt missing stopReason")
-        text = self._last_agent_text(t)
+        text, n_chars = self._last_agent_text(t)
+        self._tokens += n_chars
         return text or f"[acp:{stop}]"
 
     def judge(self, task: TaskRecord, response: str) -> Tuple[float, float, str]:
+        """Score locally. ACP v1 has no judge RPC; Sleep does not ask the agent to judge."""
         hard = exact_score(task.reference, response) if task.reference_kind == "exact" else 0.0
         soft = keyword_soft_score(task.reference, response) if task.reference else 0.0
         return hard, soft, "acp-local-judge"
@@ -511,20 +523,27 @@ class AcpBackend(Backend):
         )
 
     def tokens_used(self) -> int:
+        """Sum of agent_message_chunk text lengths seen during attempt().
+
+        Proxy for optimizer accounting, not provider billing. ACP v1 does not
+        report token usage.
+        """
         return self._tokens
 
     def close(self) -> None:
         if self.transport is not None:
             self.transport.close()
 
-    @staticmethod
-    def _last_agent_text(transport: AcpTransport) -> str:
+    def _last_agent_text(self, transport: AcpTransport) -> Tuple[str, int]:
         # Agents stream the assistant turn as multiple agent_message_chunk
-        # session/update notifications (ACP v1). Concatenate every text chunk
-        # in transcript order; taking only the last drops earlier deltas.
+        # session/update notifications (ACP v1). Concatenate text chunks from
+        # this prompt's transcript slice only; taking only the last drops earlier deltas.
         transcript = getattr(transport, "transcript", None) or []
+        start = self._chunk_scan_start
+        if start < 0 or start > len(transcript):
+            start = 0
         parts: List[str] = []
-        for msg in transcript:
+        for msg in transcript[start:]:
             if not isinstance(msg, dict):
                 continue
             if msg.get("method") != "session/update":
@@ -536,7 +555,9 @@ class AcpBackend(Backend):
             content = update.get("content") or {}
             if isinstance(content, dict) and content.get("type") == "text":
                 parts.append(str(content.get("text", "")))
-        return "".join(parts)
+        self._chunk_scan_start = len(transcript)
+        text = "".join(parts)
+        return text, len(text)
 
 
 def get_acp_backend(
