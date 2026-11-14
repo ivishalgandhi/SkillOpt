@@ -2792,10 +2792,25 @@ def get_backend(
             project_dir or os.getcwd(), ".skillopt-sleep-handoff"
         )
         return HandoffBackend(model=model, handoff_dir=hdir)
+    if n in {"acp", "agent_client_protocol", "agent-client-protocol"}:
+        # Native SkillOpt↔ACP adapter. Env precedence lives in get_acp_backend.
+        from skillopt_sleep.acp_backend import get_acp_backend
+
+        use_mock = os.environ.get("SKILLOPT_SLEEP_ACP_MOCK", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        return get_acp_backend(
+            model=model,
+            project_dir=project_dir,
+            use_mock=use_mock,
+        )
     if n in {"mock", ""}:
         return MockBackend()
     raise ValueError(
-        f"Unknown backend: {name!r}. Supported backends are: 'azure', 'azure-responses', "
+        f"Unknown backend: {name!r}. Supported backends are: 'acp', 'azure', 'azure-responses', "
         "'claude', 'codex', 'copilot', 'cursor', 'handoff', 'mock', 'opencode', 'pi'."
     )
 
