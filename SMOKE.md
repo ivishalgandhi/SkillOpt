@@ -13,6 +13,7 @@ Env vars the ACP backend reads:
 | `SKILLOPT_SLEEP_ACP_CLAUDE_CMD` | Replaces the Claude `npx` command. Ignored unless the preset is `claude` and `AGENT_CMD` is empty. |
 | `SKILLOPT_SLEEP_ACP_TIMEOUT` | Seconds for one JSON-RPC round trip. Default `60`. |
 | `SKILLOPT_SLEEP_ACP_AGENT_CWD` | Optional subprocess cwd. Must be an existing directory. Default: inherit. |
+| `SKILLOPT_SLEEP_ACP_MODEL` | Optional model id. Applied only when the session advertises models: `session/set_model` for `models.availableModels`, or `session/set_config_option` when a config option id is `model`. Aliases match an advertised value (`sonnet` → `sonnet`). Unadvertised sessions keep the agent default. |
 
 `custom` with an empty `SKILLOPT_SLEEP_ACP_AGENT_CMD` raises `AcpBackendError`.
 
@@ -116,17 +117,24 @@ export SKILLOPT_SLEEP_ACP_AGENT=claude
 Resolved command: `npx -y @agentclientprotocol/claude-agent-acp@0.107.0`.
 There is no `claude` binary on `PATH` here. The adapter still starts via `npx`. Do not point `SKILLOPT_SLEEP_ACP_CLAUDE_CMD` at `@zed-industries/claude-code-acp`.
 
+The adapter advertises config option `model` with values `default`, `opus`, `fable`, `sonnet`, `haiku`. `default` is sent as `claude-opus-5-5`. Set a value before the one-shot:
+
+```bash
+export SKILLOPT_SLEEP_ACP_MODEL=sonnet
+```
+
 What happened with the API key unset and no login attempt:
 
 1. Relative `cwd` (`.`) fails before the prompt: `Invalid params: cwd must be an absolute path`. The snippet above uses `os.getcwd()`, which gets past that.
-2. `initialize` and `session/new` then succeed (`protocol 1`, session `d4fe0fa8-810d-40a8-bf61-d34178e2c709`).
-3. `session/prompt` fails. Exact agent error:
+2. `initialize` and `session/new` succeed. `SKILLOPT_SLEEP_ACP_MODEL` calls `session/set_config_option` (`configId=model`).
+3. `session/prompt` still fails. Exact agent errors:
 
 ```text
-Internal error: There's an issue with the selected model (claude-opus-5-5). It may not exist or you may not have access to it.
+sonnet: Internal error: There's an issue with the selected model (claude-sonnet-5-5). It may not exist or you may not have access to it.
+haiku: Internal error: There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it.
 ```
 
-`errorKind` is `model_not_found`. No interactive login was started. Stop there. Do not export an API key to get past it.
+`errorKind` is `model_not_found` for both. Sessions `53993414-bef3-4e9a-a42c-ad8f4f2ca97c` (sonnet) and `7d71655b-a8c6-41bc-9852-28737136ec49` (haiku). No interactive login was started. Stop there. Do not export an API key to get past it.
 
 ## Contract tests
 
@@ -134,4 +142,4 @@ Internal error: There's an issue with the selected model (claude-opus-5-5). It m
 python3 -m pytest -q tests/test_acp_backend_contract.py tests/test_acp_agent_registry.py
 ```
 
-Expected: `23 passed`.
+Expected: `28 passed`.

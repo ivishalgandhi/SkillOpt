@@ -33,6 +33,7 @@ def _clear_acp_env() -> None:
     os.environ.pop("SKILLOPT_SLEEP_ACP_AGENT_CMD", None)
     os.environ.pop("SKILLOPT_SLEEP_ACP_AGENT", None)
     os.environ.pop("SKILLOPT_SLEEP_ACP_CLAUDE_CMD", None)
+    os.environ.pop("SKILLOPT_SLEEP_ACP_MODEL", None)
 
 
 def test_initialize_params_match_acp_v1_required_fields() -> None:
@@ -237,6 +238,58 @@ def test_get_backend_agent_cmd_wins_over_preset(monkeypatch) -> None:
     monkeypatch.setattr("skillopt_sleep.acp_backend.StdioAcpTransport", _Capture)
     get_backend("acp")
     assert captured["command"] == "explicit-agent"
+
+
+def _model_methods(transport: MockAcpAgentTransport) -> list[tuple[str, dict]]:
+    found = []
+    for msg in transport.transcript:
+        if not isinstance(msg, dict):
+            continue
+        method = msg.get("method")
+        if method in {"session/set_model", "session/set_config_option"}:
+            found.append((method, msg.get("params") or {}))
+    return found
+
+
+def test_acp_model_env_sets_backend_model(monkeypatch) -> None:
+    monkeypatch.setenv("SKILLOPT_SLEEP_ACP_MOCK", "1")
+    monkeypatch.setenv("SKILLOPT_SLEEP_ACP_MODEL", "haiku")
+    be = get_backend("acp")
+    assert be.model == "haiku"
+
+
+def test_config_option_model_is_set_when_advertised() -> None:
+    transport = MockAcpAgentTransport(advertise="config")
+    be = AcpBackend(transport=transport, model="sonnet")
+    be.connect()
+    assert _model_methods(transport) == [(
+        "session/set_config_option",
+        {"sessionId": be._session.session_id, "configId": "model", "value": "sonnet"},
+    )]
+
+
+def test_session_set_model_when_model_list_advertised() -> None:
+    transport = MockAcpAgentTransport(advertise="models")
+    be = AcpBackend(transport=transport, model="haiku")
+    be.connect()
+    assert _model_methods(transport) == [(
+        "session/set_model",
+        {"sessionId": be._session.session_id, "modelId": "haiku"},
+    )]
+
+
+def test_unadvertised_model_is_not_sent() -> None:
+    transport = MockAcpAgentTransport()
+    be = AcpBackend(transport=transport, model="haiku")
+    be.connect()
+    assert _model_methods(transport) == []
+
+
+def test_unknown_advertised_model_raises() -> None:
+    transport = MockAcpAgentTransport(advertise="config")
+    be = AcpBackend(transport=transport, model="nope")
+    with pytest.raises(AcpBackendError, match="not advertised"):
+        be.connect()
 
 
 def test_get_backend_mock_wins_over_agent_cmd(monkeypatch) -> None:

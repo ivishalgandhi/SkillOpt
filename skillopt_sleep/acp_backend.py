@@ -96,10 +96,12 @@ class MockAcpAgentTransport(AcpTransport):
     initialize → session/new → session/prompt.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, advertise: str = "") -> None:
         self._next_id = 1
         self.sessions: Dict[str, Dict[str, Any]] = {}
         self.transcript: List[Dict[str, Any]] = []
+        # "config" or "models": include a model menu on session/new. Empty: none.
+        self.advertise = advertise
 
     def request(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
         req_id = self._next_id
@@ -120,6 +122,29 @@ class MockAcpAgentTransport(AcpTransport):
             sid = f"sess_{uuid.uuid4().hex[:12]}"
             self.sessions[sid] = {"cwd": params["cwd"], "prompts": []}
             result = {"sessionId": sid}
+            if self.advertise == "config":
+                result["configOptions"] = [{
+                    "id": "model",
+                    "name": "Model",
+                    "type": "select",
+                    "currentValue": "default",
+                    "options": [
+                        {"value": "default", "name": "Default"},
+                        {"value": "sonnet", "name": "Sonnet"},
+                        {"value": "haiku", "name": "Haiku"},
+                    ],
+                }]
+            elif self.advertise == "models":
+                result["models"] = {
+                    "currentModelId": "default",
+                    "availableModels": [
+                        {"modelId": "default", "name": "Default"},
+                        {"modelId": "sonnet", "name": "Sonnet"},
+                        {"modelId": "haiku", "name": "Haiku"},
+                    ],
+                }
+        elif method in {"session/set_model", "session/set_config_option"}:
+            result = {}
         elif method == "session/prompt":
             sid = params.get("sessionId")
             prompt = params.get("prompt")
@@ -475,8 +500,40 @@ class AcpBackend(Backend):
         cwd = self.project_dir or "."
         created = t.request("session/new", build_session_new_params(cwd=cwd))
         sid = created["sessionId"]
+        self._apply_model(t, created, sid)
         self._session = AcpSession(session_id=sid, cwd=cwd, negotiated_version=version)
         return self._session
+
+    def _apply_model(self, transport: AcpTransport, created: Dict[str, Any], session_id: str) -> None:
+        """Set the session model only when this session advertised one.
+
+        ``models.availableModels`` uses ACP ``session/set_model``. A ``model``
+        config option (Claude ACP adapter) uses ``session/set_config_option``.
+        No advertisement means leave the agent default alone.
+        """
+        requested = (self.model or "").strip()
+        if not requested:
+            return
+        models = created.get("models") if isinstance(created.get("models"), dict) else {}
+        available = models.get("availableModels") if isinstance(models, dict) else None
+        if isinstance(available, list) and available:
+            ids = [str(m.get("modelId")) for m in available if isinstance(m, dict) and m.get("modelId")]
+            model_id = _match_advertised(requested, ids)
+            transport.request("session/set_model", {"sessionId": session_id, "modelId": model_id})
+            return
+        for opt in created.get("configOptions") or []:
+            if not isinstance(opt, dict) or opt.get("id") != "model":
+                continue
+            values = []
+            for item in opt.get("options") or []:
+                if isinstance(item, dict) and item.get("value") is not None:
+                    values.append(str(item["value"]))
+            chosen = _match_advertised(requested, values)
+            transport.request(
+                "session/set_config_option",
+                {"sessionId": session_id, "configId": "model", "value": chosen},
+            )
+            return
 
     def attempt(self, task: TaskRecord, skill: str, memory: str, sample_id: int = 0) -> str:
         session = self.connect()
@@ -602,8 +659,22 @@ def get_acp_backend(
             cwd=spawn_cwd,
             timeout=float(timeout if timeout is not None else DEFAULT_STDIO_TIMEOUT),
         )
+    chosen = (model or "").strip() or os.environ.get("SKILLOPT_SLEEP_ACP_MODEL", "").strip()
     return AcpBackend(
         transport=transport,
-        model=model,
+        model=chosen,
         project_dir=project_dir or ".",
     )
+
+
+def _match_advertised(requested: str, candidates: List[str]) -> str:
+    """Exact id, else the single candidate whose id contains the request."""
+    low = requested.lower()
+    for candidate in candidates:
+        if candidate == requested or candidate.lower() == low:
+            return candidate
+    hits = [candidate for candidate in candidates if low in candidate.lower()]
+    if len(hits) == 1:
+        return hits[0]
+    known = ", ".join(candidates) or "(none)"
+    raise AcpBackendError(f"ACP model {requested!r} is not advertised. Known: {known}.")
