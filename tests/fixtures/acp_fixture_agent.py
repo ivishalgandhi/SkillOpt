@@ -9,6 +9,7 @@ Not a product agent — only for non-mock StdioAcpTransport contract tests.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import uuid
 from typing import Any, Dict, Optional
@@ -81,23 +82,26 @@ def main() -> int:
                 if isinstance(block, dict) and block.get("type") == "text":
                     text_bits.append(str(block.get("text", "")))
             joined = "\n".join(text_bits)
-            # Agent → client notification before the prompt result.
-            _write(
-                {
-                    "jsonrpc": "2.0",
-                    "method": "session/update",
-                    "params": {
-                        "sessionId": sid,
-                        "update": {
-                            "sessionUpdate": "agent_message_chunk",
-                            "content": {
-                                "type": "text",
-                                "text": f"[fixture-acp] {joined[:500]}",
+            # SKILLOPT_ACP_FIXTURE_SPLIT=1: two chunks that concatenate to the
+            # same "[fixture-acp] …" body plus the token "pong".
+            if os.environ.get("SKILLOPT_ACP_FIXTURE_SPLIT") == "1":
+                chunks = ["[fixture-acp] p", f"ong {joined[:500]}"]
+            else:
+                chunks = [f"[fixture-acp] {joined[:500]}"]
+            for text in chunks:
+                _write(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "session/update",
+                        "params": {
+                            "sessionId": sid,
+                            "update": {
+                                "sessionUpdate": "agent_message_chunk",
+                                "content": {"type": "text", "text": text},
                             },
                         },
-                    },
-                }
-            )
+                    }
+                )
             _reply(req_id, {"stopReason": "end_turn"})
         else:
             _error(req_id, -32601, f"Method not found: {method}")

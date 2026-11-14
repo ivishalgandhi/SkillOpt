@@ -155,6 +155,40 @@ def test_stdio_transport_lifecycle_with_fixture_agent() -> None:
 
 
 @pytest.mark.skipif(not FIXTURE_AGENT.is_file(), reason="fixture agent missing")
+def test_stdio_fixture_emits_multiple_chunks_concatenated(monkeypatch) -> None:
+    """Regression: session/update deltas concatenate, not last-chunk-wins."""
+    monkeypatch.setenv("SKILLOPT_ACP_FIXTURE_SPLIT", "1")
+    cmd = f"{sys.executable} {FIXTURE_AGENT}"
+    transport = StdioAcpTransport(cmd, timeout=15.0)
+    try:
+        backend = AcpBackend(transport=transport, project_dir=".")
+        task = TaskRecord(
+            id="t-chunks",
+            project="demo",
+            intent="split chunks",
+            context_excerpt="fixture",
+            reference_kind="exact",
+            reference="pong",
+        )
+        response = backend.attempt(task, skill="be brief", memory="")
+        assert response.startswith("[fixture-acp]")
+        assert "pong" in response
+        chunk_texts = []
+        for msg in transport.transcript:
+            if not isinstance(msg, dict) or msg.get("method") != "session/update":
+                continue
+            update = (msg.get("params") or {}).get("update") or {}
+            if update.get("sessionUpdate") != "agent_message_chunk":
+                continue
+            chunk_texts.append((update.get("content") or {}).get("text"))
+        assert chunk_texts[0].endswith("p")
+        assert chunk_texts[1].startswith("ong")
+        assert "".join(chunk_texts) == response
+    finally:
+        transport.close()
+
+
+@pytest.mark.skipif(not FIXTURE_AGENT.is_file(), reason="fixture agent missing")
 def test_get_backend_acp_agent_cmd_uses_stdio_transport(monkeypatch) -> None:
     monkeypatch.delenv("SKILLOPT_SLEEP_ACP_MOCK", raising=False)
     monkeypatch.setenv(
