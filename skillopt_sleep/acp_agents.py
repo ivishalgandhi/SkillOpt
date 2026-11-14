@@ -1,6 +1,10 @@
 """Named ACP stdio agent presets. No process spawn. No API-key env reads.
 
-Legacy package ``@zed-industries/claude-code-acp`` is deprecated. Do not select it.
+Claude preset prefers ``@agentclientprotocol/claude-agent-acp`` (Claude login).
+SkillOpt does not pass or require an API key for that preset.
+Do not default to ``@zed-industries/claude-code-acp`` (its README uses an API key).
+``SKILLOPT_SLEEP_ACP_CLAUDE_CMD`` is an optional full shell command
+(standalone binary or another pin) and replaces the npx default.
 """
 from __future__ import annotations
 

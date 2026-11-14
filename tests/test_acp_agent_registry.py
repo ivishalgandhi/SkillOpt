@@ -1,6 +1,8 @@
 """Pure tests for ACP agent preset resolution. No subprocess."""
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from skillopt_sleep.acp_agents import (
@@ -33,6 +35,30 @@ def test_claude_default_and_override() -> None:
         agent_name="claude", agent_cmd=None, claude_cmd="claude-agent-acp"
     )
     assert override == "claude-agent-acp"
+
+
+def test_claude_preset_spawn_command_ignores_api_key_env(monkeypatch) -> None:
+    """AGENT=claude yields a command string and does not write an API key env."""
+    from skillopt_sleep.acp_backend import StdioAcpTransport
+    from skillopt_sleep.backend import get_backend
+
+    monkeypatch.delenv("SKILLOPT_SLEEP_ACP_MOCK", raising=False)
+    monkeypatch.delenv("SKILLOPT_SLEEP_ACP_AGENT_CMD", raising=False)
+    monkeypatch.setenv("SKILLOPT_SLEEP_ACP_AGENT", "claude")
+    monkeypatch.setenv("SKILLOPT_SLEEP_ACP_CLAUDE_CMD", "echo claude-acp")
+    key = "ANTHROPIC_API_KEY"
+    before = os.environ.get(key)
+    captured: dict[str, str] = {}
+
+    class _Capture(StdioAcpTransport):
+        def __init__(self, command: str, **kwargs: object) -> None:
+            captured["command"] = command
+
+    monkeypatch.setattr("skillopt_sleep.acp_backend.StdioAcpTransport", _Capture)
+    get_backend("acp")
+    assert captured["command"] == "echo claude-acp"
+    assert os.environ.get(key) == before
+    assert key not in captured["command"]
 
 
 def test_explicit_cmd_wins_over_preset() -> None:
