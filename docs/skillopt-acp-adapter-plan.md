@@ -1,6 +1,5 @@
 # SkillOpt ↔ ACP adapter plan
 
-**Host:** m4 (`/Users/vishal/code/…`) — OMB `/data/code/…` is copy source only  
 **Product:** SkillOpt with **native ACP** (world-usable)  
 **Not the product:** ACP GitHub fork (protocol test bed only)  
 **Not a path:** paying an LLM instead of speaking ACP
@@ -26,12 +25,13 @@
 - [x] Fixture agent + non-mock stdio contract tests.
 - [x] Real-agent prove: `cursor-agent acp` over stdio — initialize + session/new
       + session/prompt + multi-chunk `agent_message_chunk` assembly + judge
-      (exact_score hard=1.0 on "pong"). Keychain was unlocked on m4.
-- [ ] Official plugins/README claim + optional upstream PRs (held for Vishal GO;
+      (exact_score hard=1.0 on "pong"). (Agent login must be usable from
+      the spawning shell.)
+- [ ] Official plugins/README claim + optional upstream PRs (held for maintainer GO;
       guardrail test `test_acp_is_not_claimed_as_official_plugin_yet` stays in
       place until that PR lands).
 
-## Real-agent prove log (2026-11-13, m4)
+## Real-agent prove log (2026-11-13)
 
 ```
 SKILLOPT_SLEEP_ACP_AGENT_CMD="cursor-agent acp"  (no mock)
