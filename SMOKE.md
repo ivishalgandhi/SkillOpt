@@ -17,7 +17,7 @@ Env vars the ACP backend reads:
 
 `custom` with an empty `SKILLOPT_SLEEP_ACP_AGENT_CMD` raises `AcpBackendError`.
 
-The one-shot below is the command that matches this branch. `skillopt-sleep --backend acp` starts a sleep cycle, not this pong check. `project_dir` is `os.getcwd()` because the Claude adapter rejects a relative `cwd`.
+The one-shot below is the command that matches this branch. `skillopt-sleep --backend acp` starts a sleep cycle, not this pong check. A relative `project_dir` is made absolute before `session/new` (`os.path.abspath`). The Claude adapter rejects a relative `cwd`.
 
 ```bash
 cd /path/to/this/repo
@@ -125,7 +125,7 @@ export SKILLOPT_SLEEP_ACP_MODEL=sonnet
 
 What happened with the API key unset and no login attempt:
 
-1. Relative `cwd` (`.`) fails before the prompt: `Invalid params: cwd must be an absolute path`. The snippet above uses `os.getcwd()`, which gets past that.
+1. A relative `project_dir` is now `os.path.abspath`'d before `session/new`. Sending `cwd` `.` without that step fails: `Invalid params: cwd must be an absolute path`.
 2. `initialize` and `session/new` succeed. `SKILLOPT_SLEEP_ACP_MODEL` calls `session/set_config_option` (`configId=model`).
 3. `session/prompt` still fails. Exact agent errors:
 
@@ -142,4 +142,4 @@ haiku: Internal error: There's an issue with the selected model (claude-haiku-5-
 python3 -m pytest -q tests/test_acp_backend_contract.py tests/test_acp_agent_registry.py
 ```
 
-Expected: `28 passed`.
+Expected: `33 passed`.

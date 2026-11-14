@@ -34,6 +34,8 @@ def _clear_acp_env() -> None:
     os.environ.pop("SKILLOPT_SLEEP_ACP_AGENT", None)
     os.environ.pop("SKILLOPT_SLEEP_ACP_CLAUDE_CMD", None)
     os.environ.pop("SKILLOPT_SLEEP_ACP_MODEL", None)
+    os.environ.pop("SKILLOPT_SLEEP_ACP_AGENT_CWD", None)
+    os.environ.pop("SKILLOPT_SLEEP_ACP_TIMEOUT", None)
 
 
 def test_initialize_params_match_acp_v1_required_fields() -> None:
@@ -290,6 +292,69 @@ def test_unknown_advertised_model_raises() -> None:
     be = AcpBackend(transport=transport, model="nope")
     with pytest.raises(AcpBackendError, match="not advertised"):
         be.connect()
+
+
+def test_second_attempt_ignores_earlier_chunks() -> None:
+    be = AcpBackend(transport=MockAcpAgentTransport())
+    first = TaskRecord(id="a", project="p", intent="alpha-only")
+    second = TaskRecord(id="b", project="p", intent="beta-only")
+    a = be.attempt(first, skill="", memory="")
+    spent = be.tokens_used()
+    b = be.attempt(second, skill="", memory="")
+    assert "alpha-only" in a and "alpha-only" not in b
+    assert "beta-only" in b
+    assert be.tokens_used() == spent + len(b)
+
+
+def test_non_json_stdout_is_the_request_error() -> None:
+    cmd = f'{sys.executable} -c "print(\'not-json\')"'
+    transport = StdioAcpTransport(cmd, timeout=3)
+    try:
+        with pytest.raises(AcpBackendError, match="non-JSON"):
+            transport.request("initialize", {})
+    finally:
+        transport.close()
+
+
+def test_session_new_without_session_id_is_backend_error() -> None:
+    class _NoSid(MockAcpAgentTransport):
+        def request(self, method: str, params: dict) -> dict:
+            if method == "session/new":
+                self.transcript.append({"method": method, "params": params})
+                return {}
+            return super().request(method, params)
+
+    be = AcpBackend(transport=_NoSid(), project_dir=".")
+    with pytest.raises(AcpBackendError, match="sessionId"):
+        be.connect()
+
+
+def test_relative_project_dir_is_sent_absolute() -> None:
+    transport = MockAcpAgentTransport()
+    be = AcpBackend(transport=transport, project_dir=".")
+    session = be.connect()
+    assert os.path.isabs(session.cwd)
+    sent = [
+        msg for msg in transport.transcript
+        if isinstance(msg, dict) and msg.get("method") == "session/new"
+    ]
+    assert os.path.isabs(sent[0]["params"]["cwd"])
+
+
+def test_close_reaps_child_that_ignores_sigterm() -> None:
+    import time
+
+    transport = StdioAcpTransport(
+        [sys.executable, "-c",
+         "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"],
+        timeout=1,
+    )
+    time.sleep(0.3)
+    assert transport._proc.poll() is None
+    started = time.monotonic()
+    transport.close()
+    assert transport._proc.poll() is not None
+    assert time.monotonic() - started >= 2.5
 
 
 def test_get_backend_mock_wins_over_agent_cmd(monkeypatch) -> None:

@@ -1,16 +1,3 @@
----
-job: gbj-20261113-007-skillopt-acp-multiagent
-planner_model: cursor/composer-2.5
-planner_fallback_reason: "Kimi k2.6 HTTP 429 (Ollama weekly limit) at mint"
-referee_model: cursor/composer-2.5
-makers: cursor/grok-4.7-high
-base_sha: 241ca62e1c4c39460da1f19a754d4ed25a60e369
-branch: feat/skillopt-native-acp-adapter
-fork_pr: "https://github.com/ivishalgandhi/SkillOpt/pull/1 (draft → fork main)"
-supersedes_partial: gbj-20261113-003-skillopt-acp-stdio
-version_impact: minor
----
-
 # PLAN — SkillOpt native ACP multi-agent
 
 ## Goal
@@ -34,7 +21,7 @@ Finish the fork-only native ACP adapter so SkillOpt-Sleep can drive **any** stdi
 | **`@agentclientprotocol/claude-agent-acp`** (current) | 0.107.0 | `claude-agent-acp` (Node global) or `npx -y @agentclientprotocol/claude-agent-acp`; optional [standalone release](https://github.com/agentclientprotocol/claude-agent-acp/releases) bundles `claude-agent-acp` + bundled `claude` CLI (`CLAUDE_CODE_EXECUTABLE` to override) | README: full smoke “needs a **Claude login**” (subscription/OAuth via Claude Code), not an API-key example | **Use this preset.** SkillOpt spawns the binary only; does **not** export `ANTHROPIC_API_KEY`. |
 | **`@zed-industries/claude-code-acp`** (legacy) | 0.16.2 | `claude-code-acp` | README install snippet explicitly runs `ANTHROPIC_API_KEY=sk-... claude-code-acp` | **Do not** wire as default preset; document as legacy only. |
 
-**Job environment constraints (from card):** no `claude` on PATH on build host; `~/.claude` present; macOS login keychain locked over SSH — same gate as cursor-agent (desktop Herdr pane for prove).
+**Environment constraints:** no `claude` binary assumed on `PATH`; a Claude login directory may exist; the macOS login keychain is locked over SSH. Cursor and Claude proves need a desktop terminal, not an SSH batch shell.
 
 **Claude prove ticket:** `blocked: needs-input` until (a) `claude-agent-acp` or standalone binary is on PATH and (b) interactive Claude Code subscription login works **without** injecting `ANTHROPIC_API_KEY`. If prove only succeeds with API key, stop and record blocker — do not add key to SkillOpt.
 
@@ -86,7 +73,7 @@ Wire in `get_acp_backend()` and `get_backend("acp")` only — no new Sleep backe
 
 ### Multi-chunk regression (commit `9b491a6`)
 
-- Extend `tests/fixtures/acp_fixture_agent.py` with env `SKILLOPT_ACP_FIXTURE_CHUNKS=2` (or fixed split) emitting `p` + `ong`.
+- Extend `tests/fixtures/acp_fixture_agent.py` with env `SKILLOPT_ACP_FIXTURE_SPLIT=1` emitting chunks `p` and `ong`.
 - Contract test asserts assembled response contains full concatenation (locks chunk concat).
 
 ## Tests
@@ -129,7 +116,7 @@ Evidence JSON schema (store under job `research/` in worktree, **not** committed
 2. `export SKILLOPT_SLEEP_ACP_AGENT=<name>` (or `AGENT_CMD` for custom)
 3. Minimal pong task (same as 003/004): intent “reply with the single word: pong”, reference exact `pong`
 4. Run via small prove script or `skillopt-sleep --backend acp` one-shot — record timings + sessionId from transport transcript
-5. **cursor-agent:** desktop Herdr pane only (not SSH BatchMode)
+5. **cursor-agent:** desktop terminal only (not SSH BatchMode; the keychain is locked there)
 6. **claude:** only after T9 unblock; never export `ANTHROPIC_API_KEY`
 
 Re-use 004 SUMMARY as baseline for cursor/devin re-record under this job’s `research/prove-*.json`.
@@ -139,11 +126,11 @@ Re-use 004 SUMMARY as baseline for cursor/devin re-record under this job’s `re
 | Stage | Gate |
 |-------|------|
 | Makers | One ticket per commit series; push fork branch |
-| CI | Fork Actions enabled (card blocker until Vishal clicks enable) |
+| CI | Fork Actions must be enabled by the fork owner before CI runs |
 | PQC | Local full pytest log in `research/pqc-*.txt` |
 | Referee | Fresh composer-2.5; full diff `main..HEAD`; include 003 range a8d2b9d..241ca62 |
 | Crew | Address actionable findings |
-| Merge | Referee PASS → squash/merge fork `main` only |
+| Merge | Do not merge. Owner smoke via `SMOKE.md` first. No upstream PR. |
 
 ## Risks
 

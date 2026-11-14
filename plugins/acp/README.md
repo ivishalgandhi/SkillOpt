@@ -1,8 +1,8 @@
 # SkillOpt ↔ ACP adapter
 
-**Status:** stdio transport landed; **not** an official SkillOpt plugin yet.
-Do **not** claim SkillOpt supports ACP until a real (non-fixture) ACP agent
-is green end-to-end.
+**Status:** not an official plugin. Cursor and Devin pong proves passed from a
+desktop terminal. The Claude preset is blocked (`model_not_found`). Do not
+claim SkillOpt officially supports ACP.
 
 ## Why this exists
 
@@ -45,6 +45,7 @@ correctness). It is **not** the product we ship.
 | `SKILLOPT_SLEEP_ACP_CLAUDE_CMD` | Optional override for the `claude` preset only |
 | `SKILLOPT_SLEEP_ACP_TIMEOUT` | Per-request timeout seconds (default 60) |
 | `SKILLOPT_SLEEP_ACP_AGENT_CWD` | Optional subprocess cwd (defaults to inherit) |
+| `SKILLOPT_SLEEP_ACP_MODEL` | Optional model id. Sent only when the session advertises models (`session/set_model`, or config option id `model`) |
 
 Select with `--backend acp`.
 

@@ -284,14 +284,18 @@ class StdioAcpTransport(AcpTransport):
         except Exception as exc:  # noqa: BLE001 — surface to waiting request()
             self._reader_error = exc
         finally:
-            # Unblock any waiters on process death / EOF.
+            # Copy waiters under the lock, then put outside it. Queue maxsize is 1.
             with self._lock:
-                for q in self._pending.values():
-                    q.put({"jsonrpc": "2.0", "error": {
+                waiters = list(self._pending.values())
+                self._pending.clear()
+            for q in waiters:
+                try:
+                    q.put_nowait({"jsonrpc": "2.0", "error": {
                         "code": -32000,
                         "message": "ACP agent stdout closed before response",
                     }})
-                self._pending.clear()
+                except queue.Full:
+                    pass
 
     def _dispatch_incoming(self, msg: Dict[str, Any]) -> None:
         # Response to our request?
@@ -370,6 +374,10 @@ class StdioAcpTransport(AcpTransport):
         self.transcript.append(resp)
         if "error" in resp and resp["error"] is not None:
             err = resp["error"]
+            if self._reader_error is not None and isinstance(err, dict) and err.get("code") == -32000:
+                raise AcpBackendError(
+                    f"ACP agent reader failed: {self._reader_error}"
+                ) from self._reader_error
             raise AcpBackendError(f"ACP agent error on {method}: {err}")
         result = resp.get("result")
         if not isinstance(result, dict):
@@ -393,18 +401,25 @@ class StdioAcpTransport(AcpTransport):
         try:
             self._proc.terminate()
         except Exception:
+            self._kill_child()
+        else:
             try:
-                self._proc.kill()
-            except Exception:
-                pass
-            return
+                self._proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._kill_child()
         try:
             self._proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            try:
-                self._proc.kill()
-            except Exception:
-                pass
+        except Exception:
+            pass
+        for thread in (getattr(self, "_reader", None), getattr(self, "_stderr_thread", None)):
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=1)
+
+    def _kill_child(self) -> None:
+        try:
+            self._proc.kill()
+        except Exception:
+            pass
 
     def __enter__(self) -> "StdioAcpTransport":
         return self
@@ -485,8 +500,9 @@ class AcpBackend(Backend):
         if self.transport is None:
             raise AcpBackendError(
                 "AcpBackend has no transport. Set SKILLOPT_SLEEP_ACP_AGENT_CMD to an "
-                "ACP agent command, SKILLOPT_SLEEP_ACP_MOCK=1 for the in-process fake, "
-                "or pass a transport explicitly."
+                "ACP agent command, SKILLOPT_SLEEP_ACP_AGENT to a preset "
+                "(cursor, devin, claude, custom), SKILLOPT_SLEEP_ACP_MOCK=1 for the "
+                "in-process fake, or pass a transport explicitly."
             )
         return self.transport
 
@@ -497,9 +513,12 @@ class AcpBackend(Backend):
         t = self._ensure_transport()
         init = t.request("initialize", build_initialize_params())
         version = int(init.get("protocolVersion", ACP_PROTOCOL_VERSION))
-        cwd = self.project_dir or "."
+        raw_cwd = self.project_dir or "."
+        cwd = raw_cwd if os.path.isabs(raw_cwd) else os.path.abspath(raw_cwd)
         created = t.request("session/new", build_session_new_params(cwd=cwd))
-        sid = created["sessionId"]
+        sid = created.get("sessionId") if isinstance(created, dict) else None
+        if not sid:
+            raise AcpBackendError(f"session/new missing sessionId: {created!r}")
         self._apply_model(t, created, sid)
         self._session = AcpSession(session_id=sid, cwd=cwd, negotiated_version=version)
         return self._session
